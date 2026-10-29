@@ -1,7 +1,7 @@
 param(
     [Parameter()]
     [ValidatePattern('^v\d+\.\d+\.\d+$')]
-    [string]$Version = 'v1.2.7',
+    [string]$Version = 'v1.2.8',
 
     [Parameter(Mandatory = $true)]
     [string]$Destination
@@ -22,10 +22,17 @@ if ($LASTEXITCODE -ne 0) {
 
 Push-Location $fullDestination
 try {
-    windres calculator.rc calculator-resource.o
+    windres -J rc -O coff calculator.rc calculator-resource.o
     if ($LASTEXITCODE -ne 0) { throw 'Icon resource compilation failed' }
 
-    gcc -std=c11 -Wall -Wextra -Wpedantic -mwindows calculator.c calculator-resource.o -ldbghelp -o calculator-gui.exe
+    # Link compiler runtimes statically, mark the image DEP-compatible, and
+    # omit linker symbols. DbgHelp is loaded from System32 at startup.
+    $buildArguments = @(
+        '-std=c11', '-Wall', '-Wextra', '-Wpedantic', '-mwindows', '-static',
+        '-Wl,--nxcompat', '-Wl,--strip-all',
+        'calculator.c', 'calculator-resource.o', '-o', 'calculator-gui.exe'
+    )
+    & gcc @buildArguments
     if ($LASTEXITCODE -ne 0) { throw 'Calculator rebuild failed' }
 
     Remove-Item calculator-resource.o -ErrorAction SilentlyContinue

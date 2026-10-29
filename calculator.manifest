@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity type="win32" name="C.Calculator.Gui" version="1.2.7.0" processorArchitecture="amd64"/>
+  <description>C Calculator (Win32 GUI)</description>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{35138b9a-6d3f-426f-8b5a-4b7161e35be1}"/>
+      <supportedOS Id="{4a2f28e3-53bf-4385-a3fa-07063e98b8d7}"/>
+      <supportedOS Id="{1f6f3c8c-91f5-4f3a-9dca-8d86b1a7ffaa}"/>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50aa14f5}"/>
+    </application>
+  </compatibility>
+</assembly>

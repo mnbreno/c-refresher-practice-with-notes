@@ -4,15 +4,15 @@
  * ============================================================================
  *
  * Project: Educational Windows calculator written in C with the Win32 API.
- * Version: 1.2.7
+ * Version: 1.2.8
  *
  * This is an independent learning project. It is not affiliated with, endorsed
  * by, or certified by Bkav Corporation or Bkav Anti Virus Software JSC.
  *
  * VirusTotal report for the released calculator-gui.exe, SHA-256
- * C2D090BEAF424D32058F8362D444213D66D156CF99A4B64DA8E623204FA624CE:
- * https://www.virustotal.com/gui/file/c2d090beaf424d32058f8362d444213d66d156cf99a4b64da8e623204fa624ce
- * The report showed 2 of 71 engines flagging the file on 2026-10-29.
+ * b9aeec49fec212a73dcb9b3aced5a67a486c1cf3a1142924f5898b7d7540f030:
+ * https://www.virustotal.com/gui/file/b9aeec49fec212a73dcb9b3aced5a67a486c1cf3a1142924f5898b7d7540f030
+ * The report showed 0 of 69 detections on 2026-10-29 at 17:20:38 EDT.
  * This is a third-party scan result, not a security certification or guarantee.
  * ============================================================================
  */
@@ -26,6 +26,24 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include "calculator_core.h"
+
+/* DbgHelp is loaded at startup and resolved at runtime instead of being listed
+   in the import table. That keeps an ordinary GUI build's import list clean
+   while the crash handler can still create a minidump, and loading the module
+   before any exception occurs avoids calling the loader from inside one. */
+static HMODULE dbghelp_module;
+
+typedef BOOL (WINAPI *MINIDUMP_WRITE_DUMP_FN)(
+    HANDLE hProcess, DWORD ProcessId, HANDLE hFile, MINIDUMP_TYPE DumpType,
+    PMINIDUMP_EXCEPTION_INFORMATION ExceptionInformation,
+    PMINIDUMP_USER_STREAM_INFORMATION UserStreamInformation,
+    PMINIDUMP_CALLBACK_INFORMATION CallbackInformation);
+
+static void preload_dbghelp(void)
+{
+    dbghelp_module = LoadLibraryExW(L"dbghelp.dll", NULL,
+                                    LOAD_LIBRARY_SEARCH_SYSTEM32);
+}
 
 /* terminology used in this C and Win32 program
 
@@ -238,8 +256,16 @@ static LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS *exception_info
         exception_address = exception_info->ExceptionRecord->ExceptionAddress;
     }
 
+    /* A failed lookup only skips the minidump; the crash log still records why
+       none was written. */
+    MINIDUMP_WRITE_DUMP_FN write_dump = (MINIDUMP_WRITE_DUMP_FN)
+        (dbghelp_module != NULL ?
+            GetProcAddress(dbghelp_module, "MiniDumpWriteDump") : NULL);
     char dump_path[MAX_PATH];
-    if (crash_file_path(dump_path, sizeof dump_path, "calculator-crash.dmp")) {
+    if (write_dump == NULL) {
+        dump_error = ERROR_PROC_NOT_FOUND;
+    } else if (crash_file_path(dump_path, sizeof dump_path,
+                               "calculator-crash.dmp")) {
         HANDLE dump_file = CreateFileA(dump_path, GENERIC_WRITE, FILE_SHARE_READ,
                                        NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
                                        NULL);
@@ -247,7 +273,7 @@ static LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS *exception_info
             MINIDUMP_EXCEPTION_INFORMATION dump_exception = {
                 GetCurrentThreadId(), exception_info, FALSE
             };
-            dump_written = MiniDumpWriteDump(
+            dump_written = write_dump(
                 GetCurrentProcess(), GetCurrentProcessId(), dump_file,
                 MiniDumpNormal, exception_info != NULL ? &dump_exception : NULL,
                 NULL, NULL);
@@ -626,7 +652,11 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance,
     (void)command_line;
 
     /* Register diagnostics before creating GUI resources so startup exceptions
-       are covered too. This filter logs a crash; it does not resume execution. */
+       are covered too. This filter logs a crash; it does not resume execution.
+       dbghelp.dll is loaded ahead of the filter, because calling the loader
+       from inside an exception handler can deadlock if a crash lands while a
+       module is still loading. */
+    preload_dbghelp();
     SetUnhandledExceptionFilter(unhandled_exception_filter);
 
         /* WinMain is the entry point for a Windows-subsystem executable. WNDCLASSA

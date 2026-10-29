@@ -1,3 +1,42 @@
-#define IDI_APP_ICON 1
+#ifndef INTERNAL_NAME
+#define INTERNAL_NAME "calculator-gui.exe"
+#endif
 
+#define IDI_APP_ICON 1
 IDI_APP_ICON ICON "icons/calculator.ico"
+
+/* Resource type 24 (RT_MANIFEST) carries the embedded application manifest, so
+   the PE states its own trust level and supported OS versions without relying
+   on the linker's default. */
+/* NOTE: RT_MANIFEST is ID 2, not 1. GNU ld (binutils >= 2.36) rejects a custom
+   manifest resource at ID 1 with ".rsrc merge failure: multiple non-default
+   manifests" because it treats ID 1 as the default-manifest slot. */
+2 24 "calculator.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+    FILEVERSION     1,2,7,0
+    PRODUCTVERSION  1,2,7,0
+    FILEFLAGSMASK   0x3f
+    FILEFLAGS       0x0
+    FILEOS          0x40004
+    FILETYPE        0x1
+    FILESUBTYPE     0x0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "breno"
+            VALUE "FileDescription",  "C Calculator (Win32 GUI)"
+            VALUE "FileVersion",      "1.2.7"
+            VALUE "InternalName",     INTERNAL_NAME
+            VALUE "OriginalFilename", INTERNAL_NAME
+            VALUE "ProductName",      "C Calculator"
+            VALUE "ProductVersion",   "1.2.7"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1252
+    END
+END

@@ -13,8 +13,8 @@ The current version is recorded in `VERSION`. Update it in every commit so each 
 Install GCC with the MinGW-w64 tools, including `windres`. From this folder, compile the icon resource and GUI:
 
 ```powershell
-windres calculator.rc calculator-resource.o
-gcc -std=c11 -Wall -Wextra -Wpedantic -mwindows calculator.c calculator-resource.o -ldbghelp -o calculator-gui.exe
+windres -J rc -O coff calculator.rc calculator-resource.o
+gcc -std=c11 -Wall -Wextra -Wpedantic -mwindows -static '-Wl,--nxcompat' '-Wl,--strip-all' calculator.c calculator-resource.o -o calculator-gui.exe
 ```
 
 Then launch it:
@@ -31,9 +31,7 @@ The program uses Win32 APIs and currently builds for Windows. The `icons` folder
 
 The display shows `Error` for empty or malformed numeric text, values outside the supported `double` range, division by zero, or arithmetic that overflows to infinity. The pending operation is cleared, so entering a digit or pressing `C` starts a fresh calculation. Startup also reports failures to register or create the window, and the program reports a message-loop failure with a Windows dialog.
 
-For an unhandled Windows exception, the registered exception filter makes a best-effort attempt to create `calculator-crash.dmp` and append details to `calculator-crash.log` beside the executable. The minidump is created through Microsoft's DbgHelp library, so link with `-ldbghelp`. Dump creation can fail during severe process failures, and recording a dump does not recover the application; Windows still terminates it. A dump may contain sensitive process memory, so keep it private and inspect it before sharing. Both generated files are excluded from Git.
-
-An unhandled Windows exception triggers a best-effort diagnostic write beside the executable: `calculator-crash.log` records the time, exception code/address, and whether a dump was written; `calculator-crash.dmp` is a `MiniDumpNormal` snapshot. The filter cannot recover from the crash, and dump creation can fail during severe failures. A dump can contain process memory and private data, so keep it local and inspect it before sharing. Both generated files are excluded from Git.
+For an unhandled Windows exception, the registered exception filter makes a best-effort attempt to create `calculator-crash.dmp` and append details to `calculator-crash.log` beside the executable. Microsoft's DbgHelp library is loaded from System32 at startup and resolved at runtime; linking with `-ldbghelp` is no longer required. The log records the time, exception code/address, and whether a `MiniDumpNormal` dump was written. Dump creation can fail, and the filter does not recover the application. Dumps may contain private process memory; keep them local and inspect them before sharing. Both generated files are excluded from Git.
 
 ## Memory management
 
@@ -54,16 +52,16 @@ The default run checks 100,000 calls for each operator, plus division-by-zero, u
 Restore and rebuild a tagged release into a new, empty folder (PowerShell):
 
 ```powershell
-\scripts\recover.ps1 -Version v1.2.7 -Destination ..\c-calculator-recovered
+.\scripts\recover.ps1 -Version v1.2.8 -Destination ..\c-calculator-recovered
 ```
 
 The script refuses to overwrite an existing destination, clones the release tag, then rebuilds the GUI and its icon resource. Crash logs and minidumps are diagnostics, not backups; the minidump can contain sensitive process memory and should be handled privately.
 
 ## Executable and VirusTotal report
 
-The tested, unsigned MinGW-w64 Windows executable is included as `calculator-gui.exe`. Its SHA-256 is recorded in [`SHA256SUMS.txt`](SHA256SUMS.txt). The [VirusTotal report](https://www.virustotal.com/gui/file/c2d090beaf424d32058f8362d444213d66d156cf99a4b64da8e623204fa624ce) for that exact hash reported **2 of 71 engines flagged** when rechecked on 2026-10-29: Bkav Pro (`W32.Malware.139374E5`) and Webroot (`Win.Malware.Gen`); 69 reported undetected. The report lists its latest vendor analysis as 2026-10-29 12:44 EDT. Microsoft Defender's custom scan reported no detection for this file on 2026-10-29. Neither result proves the file is universally safe: this is not a clean VirusTotal verdict, and the generic detections have not been independently confirmed as false positives.
+The unsigned MinGW-w64 Windows executable is included as `calculator-gui.exe` (45,568 bytes). Its SHA-256 is `b9aeec49fec212a73dcb9b3aced5a67a486c1cf3a1142924f5898b7d7540f030`, also recorded in [`SHA256SUMS.txt`](SHA256SUMS.txt). The [VirusTotal report](https://www.virustotal.com/gui/file/b9aeec49fec212a73dcb9b3aced5a67a486c1cf3a1142924f5898b7d7540f030) showed **0 of 69 detections**, with its latest analysis dated 2026-10-29 at 17:20:38 EDT. Bkav Pro and Webroot both reported Undetected; ClamAV and Rising timed out, and four mobile engines could not process the file type. These results apply to this exact executable and are not a security certification.
 
-The source is available for inspection and the executable can be rebuilt with the command above. If you believe the two detections are false positives, submit the exact file and its SHA-256 to Bkav Pro and Webroot through their official false-positive review channels and link this VirusTotal report. Do not change or obfuscate program behavior merely to lower scanner counts. VirusTotal submissions are shared with its security community; the minidump is private user data and must not be uploaded as part of this scan.
+Release v1.2.8 preserves the exact scanned executable, whose embedded file/product version and manifest identity remain 1.2.7. The source includes static runtime linking, DEP compatibility, version resources, an application manifest, and runtime DbgHelp loading. Rebuilds can have different hashes because of toolchain versions and build timestamps; the report above does not cover rebuilt binaries. The previous executable's detections do not apply to this new hash, and this report does not establish a vendor reclassification of the old file. Crash dumps and logs are private diagnostics and are not release assets.
 
 ## Topics practiced
 
