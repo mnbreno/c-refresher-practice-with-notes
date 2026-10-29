@@ -4,3 +4,5 @@
 *.res
 calculator-crash.log
 calculator-crash.dmp
+test-results/
+tests/calculator-headless-tests.exe

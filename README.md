@@ -21,6 +21,8 @@ Then launch it:
 .\calculator-gui.exe
 ```
 
+See the [GUI cheat sheet](GUI-CHEATSHEET.md) for button actions.
+
 The program uses Win32 APIs and currently builds for Windows. The `icons` folder also includes PNG and ICNS versions for future Linux or macOS ports.
 
 ## Error handling
@@ -34,6 +36,26 @@ An unhandled Windows exception triggers a best-effort diagnostic write beside th
 ## Memory management
 
 The calculator does not dynamically allocate number buffers; local character arrays are automatically released when their functions return, and file-scope state lives until process exit. Windows destroys child controls with the parent window. The program explicitly releases its GDI font with `DeleteObject`. The crash handler closes each dump/log file handle even when writing fails. When adding a new Windows or GDI resource, give it one clear owner and release it on both normal shutdown and partial initialization failure.
+
+## Headless stress tests and measurements
+
+The arithmetic core is in `calculator_core.h`, which has no Win32 dependency. The GUI and test executable include the same function, so tests run without creating a window:
+
+```powershell
+.\tests\run_headless.ps1
+```
+
+The default run checks 100,000 calls for each operator, plus division-by-zero, unsupported-operator, infinity, and overflow cases. It prints per-operator elapsed time and throughput, and records the measurements in `test-results/c-benchmark.csv`. Set a larger count with `-IterationsPerOperator 1000000`; values below 10,000 are rejected. The timed loop includes result validation and a checksum to prevent the compiler from removing the calculations. Test executables and CSV results are ignored by Git. Timings are machine/load dependent and useful for comparing builds on the same machine, not as universal performance claims.
+
+## Disaster recovery
+
+Restore and rebuild a tagged release into a new, empty folder (PowerShell):
+
+```powershell
+.\scripts\recover.ps1 -Version v1.2.0 -Destination ..\c-calculator-recovered
+```
+
+The script refuses to overwrite an existing destination, clones the release tag, then rebuilds the GUI and its icon resource. Crash logs and minidumps are diagnostics, not backups; the minidump can contain sensitive process memory and should be handled privately.
 
 ## Topics practiced
 

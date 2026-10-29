@@ -6,6 +6,7 @@
 #include <string.h>
 #include <windows.h>
 #include <dbghelp.h>
+#include "calculator_core.h"
 
 /* terminology used in this C and Win32 program
 
@@ -244,42 +245,6 @@ static LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS *exception_info
 
     write_crash_log(exception_code, exception_address, dump_written, dump_error);
     return EXCEPTION_EXECUTE_HANDLER;
-}
-
-/* This helper contains arithmetic only, separate from Windows event handling.
-   C returns one value directly, so result is an output parameter: double * means
-   it points to a double, and *result accesses the value at that address. The
-   caller passes an address with &, letting this helper write its answer there.
-   The bool return separately reports success or failure. */
-static bool calculate(double left, char operator, double right, double *result)
-{
-    /* If answer is a double, &answer means its address. Passing it here lets
-       *result = 6 update answer in the caller's function. */
-    switch (operator) {
-        case '+':
-            *result = left + right;
-            break;
-        case '-':
-            *result = left - right;
-            break;
-        case '*':
-            *result = left * right;
-            break;
-        case '/':
-            if (right == 0.0) {
-                /* Reject a zero divisor before division so callers can show an
-                   error instead of displaying an infinite result. */
-                return false;
-            }
-            *result = left / right;
-            break;
-        default:
-            return false;
-    }
-
-    /* Finite inputs can still overflow, such as a very large value times itself.
-       isfinite catches infinity and NaN before either reaches the display. */
-    return isfinite(*result);
 }
 
 /* Show a recoverable error and clear pending state so the next digit starts over. */
