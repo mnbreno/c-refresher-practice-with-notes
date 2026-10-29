@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
+#include <dbghelp.h>
 
 /* terminology used in this C and Win32 program
 
@@ -50,6 +51,20 @@
     checks that display text parses completely and is in range; calculate checks
     division and the final result. A failure returns false, and the UI shows Error
     and resets pending state instead of using a bad value.
+
+    unhandled-exception filter: a Windows callback registered for exceptions that
+    were not handled by the program. This project uses it to write a text crash log
+    and a minidump. It is best-effort diagnostics, not recovery: Windows still
+    terminates the process after the filter returns EXCEPTION_EXECUTE_HANDLER.
+
+    minidump: a DbgHelp snapshot of selected process state at failure time. This
+    program requests MiniDumpNormal and writes calculator-crash.dmp next to the EXE.
+    A dump can contain memory values and paths, so treat it as private diagnostic data.
+
+    crash log: calculator-crash.log is a text record of the exception code, address,
+    and whether dump writing succeeded. Both diagnostic files are best-effort output;
+    a crash filter cannot repair the process. The filter closes each Win32 file handle
+    after writing, including when MiniDumpWriteDump reports failure.
 
     static: at file scope, restricts a name to this source file. Static variables
     have static storage duration, so their values exist for the whole program run.
@@ -122,6 +137,114 @@ static char pending_operator;
     display and begins an operand. An operator sets it before the second operand;
     entering a digit clears it so more digits append to that operand. */
 static bool start_new_number = true;
+
+/* Build a diagnostics path beside the executable so the output location does
+   not depend on the terminal's current working directory. */
+static bool crash_file_path(char *path, size_t capacity, const char *filename)
+{
+    DWORD length = GetModuleFileNameA(NULL, path, (DWORD)capacity);
+    if (length == 0 || length >= capacity) {
+        return false;
+    }
+
+    char *separator = strrchr(path, '\\');
+    char *forward_separator = strrchr(path, '/');
+    if (separator == NULL || (forward_separator != NULL && forward_separator > separator)) {
+        separator = forward_separator;
+    }
+    if (separator == NULL) {
+        return false;
+    }
+
+    size_t directory_length = (size_t)(separator - path) + 1;
+    size_t filename_length = strlen(filename);
+    if (directory_length + filename_length + 1 > capacity) {
+        return false;
+    }
+
+    memcpy(path + directory_length, filename, filename_length + 1);
+    return true;
+}
+
+/* Append plain-text context after attempting the binary dump. Every file handle
+   is closed here even when WriteFile fails, preventing a diagnostics leak. */
+static void write_crash_log(DWORD exception_code, const void *exception_address,
+                            BOOL dump_written, DWORD dump_error)
+{
+    char log_path[MAX_PATH];
+    if (!crash_file_path(log_path, sizeof log_path, "calculator-crash.log")) {
+        return;
+    }
+
+    HANDLE log_file = CreateFileA(log_path, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                  NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (log_file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    SYSTEMTIME time;
+    GetLocalTime(&time);
+    char record[512];
+    int record_length = snprintf(
+        record, sizeof record,
+        "[%04u-%02u-%02u %02u:%02u:%02u.%03u] Unhandled Windows exception\r\n"
+        "Code: 0x%08lX\r\nAddress: %p\r\nMinidump written: %s\r\n"
+        "Dump error code: %lu\r\n\r\n",
+        (unsigned)time.wYear, (unsigned)time.wMonth, (unsigned)time.wDay,
+        (unsigned)time.wHour, (unsigned)time.wMinute, (unsigned)time.wSecond,
+        (unsigned)time.wMilliseconds, (unsigned long)exception_code,
+        exception_address, dump_written ? "yes" : "no",
+        (unsigned long)dump_error);
+
+    if (record_length > 0 && (size_t)record_length < sizeof record) {
+        DWORD written;
+        WriteFile(log_file, record, (DWORD)record_length, &written, NULL);
+        FlushFileBuffers(log_file);
+    }
+    CloseHandle(log_file);
+}
+
+/* Windows invokes this only for an unhandled structured exception. It records
+   diagnostics and then tells the OS to run normal unhandled-exception handling. */
+static LONG WINAPI unhandled_exception_filter(EXCEPTION_POINTERS *exception_info)
+{
+    DWORD exception_code = 0;
+    const void *exception_address = NULL;
+    BOOL dump_written = FALSE;
+    DWORD dump_error = ERROR_SUCCESS;
+
+    if (exception_info != NULL && exception_info->ExceptionRecord != NULL) {
+        exception_code = exception_info->ExceptionRecord->ExceptionCode;
+        exception_address = exception_info->ExceptionRecord->ExceptionAddress;
+    }
+
+    char dump_path[MAX_PATH];
+    if (crash_file_path(dump_path, sizeof dump_path, "calculator-crash.dmp")) {
+        HANDLE dump_file = CreateFileA(dump_path, GENERIC_WRITE, FILE_SHARE_READ,
+                                       NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                                       NULL);
+        if (dump_file != INVALID_HANDLE_VALUE) {
+            MINIDUMP_EXCEPTION_INFORMATION dump_exception = {
+                GetCurrentThreadId(), exception_info, FALSE
+            };
+            dump_written = MiniDumpWriteDump(
+                GetCurrentProcess(), GetCurrentProcessId(), dump_file,
+                MiniDumpNormal, exception_info != NULL ? &dump_exception : NULL,
+                NULL, NULL);
+            if (!dump_written) {
+                dump_error = GetLastError();
+            }
+            CloseHandle(dump_file);
+        } else {
+            dump_error = GetLastError();
+        }
+    } else {
+        dump_error = ERROR_BUFFER_OVERFLOW;
+    }
+
+    write_crash_log(exception_code, exception_address, dump_written, dump_error);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
 
 /* This helper contains arithmetic only, separate from Windows event handling.
    C returns one value directly, so result is an output parameter: double * means
@@ -517,6 +640,10 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance,
 {
     (void)previous_instance;
     (void)command_line;
+
+    /* Register diagnostics before creating GUI resources so startup exceptions
+       are covered too. This filter logs a crash; it does not resume execution. */
+    SetUnhandledExceptionFilter(unhandled_exception_filter);
 
         /* WinMain is the entry point for a Windows-subsystem executable. WNDCLASSA
              is a C structure describing a window type, not an object-oriented class.

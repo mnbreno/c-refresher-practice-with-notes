@@ -12,7 +12,7 @@ Install GCC with the MinGW-w64 tools, including `windres`. From this folder, com
 
 ```powershell
 windres calculator.rc calculator-resource.o
-gcc -std=c11 -Wall -Wextra -Wpedantic -mwindows calculator.c calculator-resource.o -o calculator-gui.exe
+gcc -std=c11 -Wall -Wextra -Wpedantic -mwindows calculator.c calculator-resource.o -ldbghelp -o calculator-gui.exe
 ```
 
 Then launch it:
@@ -26,6 +26,14 @@ The program uses Win32 APIs and currently builds for Windows. The `icons` folder
 ## Error handling
 
 The display shows `Error` for empty or malformed numeric text, values outside the supported `double` range, division by zero, or arithmetic that overflows to infinity. The pending operation is cleared, so entering a digit or pressing `C` starts a fresh calculation. Startup also reports failures to register or create the window, and the program reports a message-loop failure with a Windows dialog.
+
+For an unhandled Windows exception, the registered exception filter makes a best-effort attempt to create `calculator-crash.dmp` and append details to `calculator-crash.log` beside the executable. The minidump is created through Microsoft's DbgHelp library, so link with `-ldbghelp`. Dump creation can fail during severe process failures, and recording a dump does not recover the application; Windows still terminates it. A dump may contain sensitive process memory, so keep it private and inspect it before sharing. Both generated files are excluded from Git.
+
+An unhandled Windows exception triggers a best-effort diagnostic write beside the executable: `calculator-crash.log` records the time, exception code/address, and whether a dump was written; `calculator-crash.dmp` is a `MiniDumpNormal` snapshot. The filter cannot recover from the crash, and dump creation can fail during severe failures. A dump can contain process memory and private data, so keep it local and inspect it before sharing. Both generated files are excluded from Git.
+
+## Memory management
+
+The calculator does not dynamically allocate number buffers; local character arrays are automatically released when their functions return, and file-scope state lives until process exit. Windows destroys child controls with the parent window. The program explicitly releases its GDI font with `DeleteObject`. The crash handler closes each dump/log file handle even when writing fails. When adding a new Windows or GDI resource, give it one clear owner and release it on both normal shutdown and partial initialization failure.
 
 ## Topics practiced
 

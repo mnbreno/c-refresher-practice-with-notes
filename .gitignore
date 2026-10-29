@@ -2,3 +2,5 @@
 *.o
 *.obj
 *.res
+calculator-crash.log
+calculator-crash.dmp
