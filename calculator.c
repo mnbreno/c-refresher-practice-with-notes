@@ -1,4 +1,6 @@
 #include <stdbool.h>
+#include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +43,13 @@
     through its output parameter while returning a separate success flag.
 
     bool: the true/false type from stdbool.h. This program uses it to report
-    whether an arithmetic operation succeeded, separately from its numeric result.
+    whether parsing, resource creation, or arithmetic succeeded, separately from
+    any numeric result. A false result lets the caller display an error safely.
+
+    error handling: validate data at the boundary before using it. displayed_number
+    checks that display text parses completely and is in range; calculate checks
+    division and the final result. A failure returns false, and the UI shows Error
+    and resets pending state instead of using a bad value.
 
     static: at file scope, restricts a name to this source file. Static variables
     have static storage duration, so their values exist for the whole program run.
@@ -61,9 +69,14 @@
     window_procedure is the callback that receives messages for the main window.
 
     C string and buffer: a C string is a char array ending with the null byte '\0'.
-    char text[64] reserves 64 bytes total, so up to 63 bytes can hold text and one
-    byte must hold '\0'. WPARAM is not limited to this text capacity; the two
-    WM_COMMAND fields used here are each 16 bits, so a control ID must fit in 16 bits.
+    C does not store a string's length or allocate space automatically when text
+    grows, so code needs a buffer: a known block of memory where characters can
+    be written. Win32 GetWindowTextA needs the caller to provide that destination
+    buffer and its capacity; it cannot return a newly allocated string. char
+    text[64] reserves 64 bytes total, so up to 63 bytes hold text and one byte
+    holds '\0'. Passing the capacity lets the API avoid writing beyond the array.
+    WPARAM is not limited to this text capacity; the two WM_COMMAND fields used
+    here are each 16 bits, so a control ID must fit in 16 bits.
 
     message loop: the repeated GetMessageA, TranslateMessage, and DispatchMessageA
     calls that wait for Windows messages and send them to the window callback.
@@ -122,50 +135,76 @@ static bool calculate(double left, char operator, double right, double *result)
     switch (operator) {
         case '+':
             *result = left + right;
-            return true;
+            break;
         case '-':
             *result = left - right;
-            return true;
+            break;
         case '*':
             *result = left * right;
-            return true;
+            break;
         case '/':
             if (right == 0.0) {
-                                /* Reject a zero divisor before division. Returning false lets
-                                     the caller show an error rather than use an infinite result. */
+                /* Reject a zero divisor before division so callers can show an
+                   error instead of displaying an infinite result. */
                 return false;
             }
             *result = left / right;
-            return true;
+            break;
         default:
             return false;
     }
+
+    /* Finite inputs can still overflow, such as a very large value times itself.
+       isfinite catches infinity and NaN before either reaches the display. */
+    return isfinite(*result);
+}
+
+/* Show a recoverable error and clear pending state so the next digit starts over. */
+static void show_error(void)
+{
+    /* A visible error replaces invalid display text. Clearing the saved operand
+       and operator prevents the next action from reusing a failed calculation. */
+    SetWindowTextA(display, "Error");
+    stored_value = 0.0;
+    pending_operator = '\0';
+    start_new_number = true;
 }
 
 static void show_number(double value)
 {
-    /* Local arrays use automatic storage duration: each call gets its own text
-       buffer, and it is reclaimed automatically when this function returns. */
+     /* A buffer is needed because snprintf and the Windows display API exchange
+         text, while value is a double. This local array provides writable memory
+         with a known capacity. Automatic storage reclaims it when this call returns. */
     char text[64];
-    /* The edit control displays text, so snprintf converts the double into the
-       char array first. text has 64 bytes; snprintf reserves one for the '\0'
-       terminator, leaving at most 63 bytes of text. %.12g prints up to 12
-       significant digits. SetWindowTextA copies the resulting text to the UI. */
+     /* snprintf converts the double into the buffer and respects its capacity.
+         One byte is reserved for '\0', leaving at most 63 text bytes. %.12g prints
+         up to 12 significant digits. SetWindowTextA then copies the text to the UI. */
     snprintf(text, sizeof text, "%.12g", value);
     SetWindowTextA(display, text);
 }
 
-/* A C string is a char array ending with '\0'. This buffer holds 64 bytes, so
-    it can store at most 63 text bytes plus the terminator. GetWindowTextA's size
-    argument includes space for that terminator. strtod parses the text as double;
-    NULL means this code does not need the pointer to the first unparsed character. */
-static double displayed_number(void)
+/* A C string is a char array ending with '\0'. GetWindowTextA writes into the
+   caller-owned buffer and needs its capacity. strtod parses the text; checking
+   its end pointer, errno, and isfinite prevents malformed, out-of-range, or
+   non-finite input from being mistaken for a valid number. */
+static bool displayed_number(double *value)
 {
-    /* This buffer is local to this call. GetWindowTextA fills memory supplied
-       by the program; it does not allocate a new buffer that we must free. */
     char text[64];
-    GetWindowTextA(display, text, sizeof text);
-    return strtod(text, NULL);
+    char *end;
+     /* A zero length can mean the display is empty or the read failed. Do not let
+         strtod silently treat either case as the valid numeric value zero. */
+     if (GetWindowTextA(display, text, sizeof text) == 0) {
+        return false;
+    }
+
+    errno = 0;
+    double parsed_value = strtod(text, &end);
+    if (end == text || *end != '\0' || errno == ERANGE || !isfinite(parsed_value)) {
+        return false;
+    }
+
+    *value = parsed_value;
+    return true;
 }
 
 static void press_digit(char digit)
@@ -223,14 +262,16 @@ static void press_operator(char operator)
     /* Save this operator until another operand is entered. If a previous
        operator and its right operand are already available, calculate them
        first. Chained operations therefore run left to right in this simple UI. */
-    double current_value = displayed_number();
+    double current_value;
+    if (!displayed_number(&current_value)) {
+        show_error();
+        return;
+    }
 
     if (pending_operator != '\0' && !start_new_number) {
         if (!calculate(stored_value, pending_operator, current_value,
                        &current_value)) {
-            SetWindowTextA(display, "Error");
-            pending_operator = '\0';
-            start_new_number = true;
+            show_error();
             return;
         }
         show_number(current_value);
@@ -245,18 +286,20 @@ static void press_equals(void)
 {
     /* Use the saved left operand and operator with the display as the right
        operand. Clear the saved operator after this attempt so it is not reused. */
+    double right_value;
     double result;
 
     if (pending_operator == '\0') {
         return;
     }
 
-    if (!calculate(stored_value, pending_operator, displayed_number(), &result)) {
-        SetWindowTextA(display, "Error");
-    } else {
-        show_number(result);
+    if (!displayed_number(&right_value)
+        || !calculate(stored_value, pending_operator, right_value, &result)) {
+        show_error();
+        return;
     }
 
+    show_number(result);
     pending_operator = '\0';
     start_new_number = true;
 }
@@ -289,7 +332,7 @@ static void press_sign(void)
     start_new_number = false;
 }
 
-static void create_button(HWND window, const char *label, int id,
+static bool create_button(HWND window, const char *label, int id,
                           int column, int row)
 {
     /* This wrapper keeps the repeated CreateWindowA arguments in one place.
@@ -302,12 +345,12 @@ static void create_button(HWND window, const char *label, int id,
 
     /* Win32 control positions are measured in pixels. Convert row and column to
        pixel offsets while using the same button size and spacing throughout. */
-    CreateWindowA("BUTTON", label, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                  left, top, button_width, button_height, window,
-                  (HMENU)(INT_PTR)id, GetModuleHandleA(NULL), NULL);
+    return CreateWindowA("BUTTON", label, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                         left, top, button_width, button_height, window,
+                         (HMENU)(INT_PTR)id, GetModuleHandleA(NULL), NULL) != NULL;
 }
 
-static void create_calculator_controls(HWND window)
+static bool create_calculator_controls(HWND window)
 {
         /* Buttons and the display are child windows. Passing the main window as
              parent groups them inside it and lets Windows send their notifications
@@ -317,6 +360,9 @@ static void create_calculator_controls(HWND window)
                             14, 16, 274, 54, window,
                             (HMENU)(INT_PTR)ID_DISPLAY,
                             GetModuleHandleA(NULL), NULL);
+    if (display == NULL) {
+        return false;
+    }
      /* CreateFontA returns a GDI resource handle. Unlike local arrays, this
          resource is not released automatically when the function returns, so the
          WM_DESTROY handler later calls DeleteObject(display_font). */
@@ -324,33 +370,44 @@ static void create_calculator_controls(HWND window)
                                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+    if (display_font == NULL) {
+        return false;
+    }
     SendMessageA(display, WM_SETFONT, (WPARAM)display_font, TRUE);
 
     /* Keep layout data together: label controls visible text, ID identifies the
        control in WM_COMMAND, and row/column determine its screen position. */
-    create_button(window, "C", ID_CLEAR, 0, 0);
-    create_button(window, "DEL", ID_DELETE, 1, 0);
-    create_button(window, "/", ID_DIVIDE, 2, 0);
-    create_button(window, "*", ID_MULTIPLY, 3, 0);
+    bool buttons_created = true;
+    buttons_created &= create_button(window, "C", ID_CLEAR, 0, 0);
+    buttons_created &= create_button(window, "DEL", ID_DELETE, 1, 0);
+    buttons_created &= create_button(window, "/", ID_DIVIDE, 2, 0);
+    buttons_created &= create_button(window, "*", ID_MULTIPLY, 3, 0);
 
-    create_button(window, "7", 7, 0, 1);
-    create_button(window, "8", 8, 1, 1);
-    create_button(window, "9", 9, 2, 1);
-    create_button(window, "-", ID_SUBTRACT, 3, 1);
+    buttons_created &= create_button(window, "7", 7, 0, 1);
+    buttons_created &= create_button(window, "8", 8, 1, 1);
+    buttons_created &= create_button(window, "9", 9, 2, 1);
+    buttons_created &= create_button(window, "-", ID_SUBTRACT, 3, 1);
 
-    create_button(window, "4", 4, 0, 2);
-    create_button(window, "5", 5, 1, 2);
-    create_button(window, "6", 6, 2, 2);
-    create_button(window, "+", ID_ADD, 3, 2);
+    buttons_created &= create_button(window, "4", 4, 0, 2);
+    buttons_created &= create_button(window, "5", 5, 1, 2);
+    buttons_created &= create_button(window, "6", 6, 2, 2);
+    buttons_created &= create_button(window, "+", ID_ADD, 3, 2);
 
-    create_button(window, "1", 1, 0, 3);
-    create_button(window, "2", 2, 1, 3);
-    create_button(window, "3", 3, 2, 3);
-    create_button(window, "=", ID_EQUALS, 3, 3);
+    buttons_created &= create_button(window, "1", 1, 0, 3);
+    buttons_created &= create_button(window, "2", 2, 1, 3);
+    buttons_created &= create_button(window, "3", 3, 2, 3);
+    buttons_created &= create_button(window, "=", ID_EQUALS, 3, 3);
 
-    create_button(window, "+/-", ID_SIGN, 0, 4);
-    create_button(window, "0", 0, 1, 4);
-    create_button(window, ".", ID_DECIMAL, 2, 4);
+    buttons_created &= create_button(window, "+/-", ID_SIGN, 0, 4);
+    buttons_created &= create_button(window, "0", 0, 1, 4);
+    buttons_created &= create_button(window, ".", ID_DECIMAL, 2, 4);
+
+    if (!buttons_created) {
+        DeleteObject(display_font);
+        display_font = NULL;
+        return false;
+    }
+    return true;
 }
 
 static LRESULT CALLBACK window_procedure(HWND window, UINT message,
@@ -365,8 +422,7 @@ static LRESULT CALLBACK window_procedure(HWND window, UINT message,
         case WM_CREATE:
             /* The system sends WM_CREATE during main-window initialization. The
                parent HWND now exists, so create its child controls. */
-            create_calculator_controls(window);
-            return 0;
+            return create_calculator_controls(window) ? 0 : -1;
 
         case WM_COMMAND: {
                 /* WM_COMMAND reports actions from menus and child controls. For a
@@ -395,6 +451,11 @@ static LRESULT CALLBACK window_procedure(HWND window, UINT message,
                     case ID_DELETE: {
                         char text[64];
                         GetWindowTextA(display, text, sizeof text);
+                        if (strcmp(text, "Error") == 0) {
+                            SetWindowTextA(display, "0");
+                            start_new_number = true;
+                            break;
+                        }
                         size_t length = strlen(text);
                         if (!start_new_number && length > 1) {
                             text[length - 1] = '\0';
@@ -470,6 +531,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance,
     window_class.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
     if (!RegisterClassA(&window_class)) {
+        MessageBoxA(NULL, "Windows could not register the calculator window.",
+                    "C Calculator", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -479,6 +542,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance,
         CW_USEDEFAULT, CW_USEDEFAULT, 316, 430,
         NULL, NULL, instance, NULL);
     if (window == NULL) {
+        MessageBoxA(NULL, "Windows could not create the calculator window.",
+                    "C Calculator", MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -490,9 +555,16 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE previous_instance,
              from keyboard messages when applicable. DispatchMessageA calls the
              registered window_procedure callback to handle each event. */
     MSG message;
-    while (GetMessageA(&message, NULL, 0, 0) > 0) {
+    int message_status;
+    while ((message_status = (int)GetMessageA(&message, NULL, 0, 0)) > 0) {
         TranslateMessage(&message);
         DispatchMessageA(&message);
+    }
+
+    if (message_status == -1) {
+        MessageBoxA(window, "Windows could not retrieve the next GUI message.",
+                    "C Calculator", MB_OK | MB_ICONERROR);
+        return 1;
     }
 
     return (int)message.wParam;

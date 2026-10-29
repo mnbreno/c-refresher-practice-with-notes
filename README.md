@@ -2,6 +2,10 @@
 
 A native Windows calculator written in C with the Win32 API. The source comments explain C pointers and strings, Windows handles, control notifications, and the GUI message loop.
 
+## Versioning
+
+The current version is recorded in `VERSION`. Update it in every commit so each commit has its own version: increment the patch number for fixes and documentation, the minor number for backward-compatible features, and the major number for incompatible changes. Published Git tags and releases use the same number with a `v` prefix.
+
 ## Build on Windows
 
 Install GCC with the MinGW-w64 tools, including `windres`. From this folder, compile the icon resource and GUI:
@@ -18,6 +22,10 @@ Then launch it:
 ```
 
 The program uses Win32 APIs and currently builds for Windows. The `icons` folder also includes PNG and ICNS versions for future Linux or macOS ports.
+
+## Error handling
+
+The display shows `Error` for empty or malformed numeric text, values outside the supported `double` range, division by zero, or arithmetic that overflows to infinity. The pending operation is cleared, so entering a digit or pressing `C` starts a fresh calculation. Startup also reports failures to register or create the window, and the program reports a message-loop failure with a Windows dialog.
 
 ## Topics practiced
 
