@@ -52,15 +52,15 @@ sequenceDiagram
     actor User
     participant Button as Win32 button
     participant OS as Windows message system
-    participant Loop as Message loop
+    participant MessagePump as Windows message pump
     participant WndProc as window_procedure
     participant Core as calculate in calculator_core.h
     participant Display as Edit control
 
     User->>Button: Click an operator or digit
     Button->>OS: Send WM_COMMAND with control ID
-    OS->>Loop: Queue message
-    Loop->>WndProc: DispatchMessageA invokes callback
+    OS->>MessagePump: Queue message
+    MessagePump->>WndProc: DispatchMessageA invokes callback
     WndProc->>WndProc: Read ID with LOWORD(WPARAM)
     WndProc->>Core: Calculate operands when complete
     alt calculation succeeds

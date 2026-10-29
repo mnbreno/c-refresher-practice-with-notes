@@ -54,7 +54,7 @@ The default run checks 100,000 calls for each operator, plus division-by-zero, u
 Restore and rebuild a tagged release into a new, empty folder (PowerShell):
 
 ```powershell
-.\scripts\recover.ps1 -Version v1.2.2 -Destination ..\c-calculator-recovered
+.\scripts\recover.ps1 -Version v1.2.3 -Destination ..\c-calculator-recovered
 ```
 
 The script refuses to overwrite an existing destination, clones the release tag, then rebuilds the GUI and its icon resource. Crash logs and minidumps are diagnostics, not backups; the minidump can contain sensitive process memory and should be handled privately.
