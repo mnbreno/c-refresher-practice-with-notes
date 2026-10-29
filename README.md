@@ -2,6 +2,8 @@
 
 A native Windows calculator written in C with the Win32 API. The source comments explain C pointers and strings, Windows handles, control notifications, and the GUI message loop.
 
+See the [architecture diagrams](docs/architecture.md) for the Win32 component and message-flow views.
+
 ## Versioning
 
 The current version is recorded in `VERSION`. Update it in every commit so each commit has its own version: increment the patch number for fixes and documentation, the minor number for backward-compatible features, and the major number for incompatible changes. Published Git tags and releases use the same number with a `v` prefix.
@@ -52,7 +54,7 @@ The default run checks 100,000 calls for each operator, plus division-by-zero, u
 Restore and rebuild a tagged release into a new, empty folder (PowerShell):
 
 ```powershell
-.\scripts\recover.ps1 -Version v1.2.1 -Destination ..\c-calculator-recovered
+.\scripts\recover.ps1 -Version v1.2.2 -Destination ..\c-calculator-recovered
 ```
 
 The script refuses to overwrite an existing destination, clones the release tag, then rebuilds the GUI and its icon resource. Crash logs and minidumps are diagnostics, not backups; the minidump can contain sensitive process memory and should be handled privately.
