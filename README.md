@@ -59,6 +59,10 @@ Restore and rebuild a tagged release into a new, empty folder (PowerShell):
 
 The script refuses to overwrite an existing destination, clones the release tag, then rebuilds the GUI and its icon resource. Crash logs and minidumps are diagnostics, not backups; the minidump can contain sensitive process memory and should be handled privately.
 
+## Executable and VirusTotal report
+
+The tested Windows executable is included as `calculator-gui.exe`. Its SHA-256 is recorded in [`SHA256SUMS.txt`](SHA256SUMS.txt). The [VirusTotal report](https://www.virustotal.com/gui/file/c2d090beaf424d32058f8362d444213d66d156cf99a4b64da8e623204fa624ce) for that exact hash reported **2 of 71 engines flagged** on 2026-10-29: Bkav Pro (`W32.Malware.139374E5`) and Webroot (`Win.Malware.Gen`); 69 reported undetected. This is not a clean verdict. Generic detections can be false positives, but that has not been independently confirmed; review the live report and use your own security judgment. VirusTotal submissions are shared with its security community.
+
 ## Topics practiced
 
 - C functions, pointers, output parameters, arrays, and null-terminated strings
