@@ -44,7 +44,18 @@
     whether an arithmetic operation succeeded, separately from its numeric result.
 
     static: at file scope, restricts a name to this source file. Static variables
-    also keep their values for the whole time the program is running.
+    have static storage duration, so their values exist for the whole program run.
+
+    automatic storage: local variables such as char text[64] are created when
+    their function starts and cease to exist when it returns. These fixed-size
+    arrays need no malloc/free calls; their memory is managed by the C function
+    call. The program does not allocate calculator data dynamically.
+
+    resource ownership: CreateWindowA asks Windows to create window/control
+    objects, and Windows manages their lifetime as the parent window is destroyed.
+    CreateFontA creates a GDI font resource; the program owns that resource and
+    must release it with DeleteObject when the window is destroyed. HWND and HFONT
+    are handles, not the resource memory itself, so do not free them with free().
 
     callback: a function registered with Windows for Windows to call later.
     window_procedure is the callback that receives messages for the main window.
@@ -86,10 +97,10 @@
     control. HFONT is a handle to a font object managed by GDI, Windows' Graphics
     Device Interface, which provides drawing resources such as fonts. Handles are
     not floats or ordinary numbers to calculate with; pass them to the Windows
-    functions that understand them. These file-scope variables are shared by the
-    callback and helper functions. static gives these names internal linkage, so
-    other source files cannot refer to them by name. C does not make them class
-    members or object properties. */
+    functions that understand them. The file-scope variables have static storage
+    duration, so the handles and calculator state remain available across events.
+    static also gives their names internal linkage, so other source files cannot
+    refer to them by name. C does not make them class members or object properties. */
 static HWND display;
 static HFONT display_font;
 static double stored_value;
@@ -133,6 +144,8 @@ static bool calculate(double left, char operator, double right, double *result)
 
 static void show_number(double value)
 {
+    /* Local arrays use automatic storage duration: each call gets its own text
+       buffer, and it is reclaimed automatically when this function returns. */
     char text[64];
     /* The edit control displays text, so snprintf converts the double into the
        char array first. text has 64 bytes; snprintf reserves one for the '\0'
@@ -148,6 +161,8 @@ static void show_number(double value)
     NULL means this code does not need the pointer to the first unparsed character. */
 static double displayed_number(void)
 {
+    /* This buffer is local to this call. GetWindowTextA fills memory supplied
+       by the program; it does not allocate a new buffer that we must free. */
     char text[64];
     GetWindowTextA(display, text, sizeof text);
     return strtod(text, NULL);
@@ -302,7 +317,10 @@ static void create_calculator_controls(HWND window)
                             14, 16, 274, 54, window,
                             (HMENU)(INT_PTR)ID_DISPLAY,
                             GetModuleHandleA(NULL), NULL);
-    display_font = CreateFontA(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+     /* CreateFontA returns a GDI resource handle. Unlike local arrays, this
+         resource is not released automatically when the function returns, so the
+         WM_DESTROY handler later calls DeleteObject(display_font). */
+     display_font = CreateFontA(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
@@ -418,9 +436,10 @@ static LRESULT CALLBACK window_procedure(HWND window, UINT message,
         }
 
         case WM_DESTROY:
-            /* WM_DESTROY signals that the main window is being removed.
-               DeleteObject releases the GDI font object. PostQuitMessage queues
-               WM_QUIT, which makes the message loop exit. */
+                /* WM_DESTROY signals that the main window is being removed. Windows
+                    manages the child controls, but the program must release the GDI
+                    font it created. DeleteObject does that; PostQuitMessage queues
+                    WM_QUIT so the message loop exits. */
             if (display_font != NULL) {
                 DeleteObject(display_font);
             }
