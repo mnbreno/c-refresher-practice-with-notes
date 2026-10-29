@@ -1,3 +1,22 @@
+/*
+ * ============================================================================
+ * C Refresher Practice With Notes
+ * ============================================================================
+ *
+ * Project: Educational Windows calculator written in C with the Win32 API.
+ * Version: 1.2.7
+ *
+ * This is an independent learning project. It is not affiliated with, endorsed
+ * by, or certified by Bkav Corporation or Bkav Anti Virus Software JSC.
+ *
+ * VirusTotal report for the released calculator-gui.exe, SHA-256
+ * C2D090BEAF424D32058F8362D444213D66D156CF99A4B64DA8E623204FA624CE:
+ * https://www.virustotal.com/gui/file/c2d090beaf424d32058f8362d444213d66d156cf99a4b64da8e623204fa624ce
+ * The report showed 2 of 71 engines flagging the file on 2026-10-29.
+ * This is a third-party scan result, not a security certification or guarantee.
+ * ============================================================================
+ */
+
 #include <stdbool.h>
 #include <errno.h>
 #include <math.h>
